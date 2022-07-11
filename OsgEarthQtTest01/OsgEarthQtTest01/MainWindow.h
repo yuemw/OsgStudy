@@ -27,7 +27,7 @@ class MainWindow : public QMainWindow
 
 public:
     MainWindow(QWidget *parent = Q_NULLPTR);
-
+	void init();
 	osg::Camera* backGround(QString sImagePath, int iWidth, int iHeight);
 private slots:
 	void			on_pushButton_select_clicked();
@@ -39,7 +39,7 @@ private slots:
 private:
 	osg::ref_ptr<osg::Node> createSceneGraph();
 	void			initOsgEarthWindow();
-
+	void			addCustomNode();
 private:
     Ui::OsgEarthQtTest			ui;
 	osgQOpenGLWidget*			_pOsgWidget;

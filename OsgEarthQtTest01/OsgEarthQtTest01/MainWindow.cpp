@@ -6,12 +6,26 @@
 #include <osg/Node>   
 #include <osg/Geode>   
 #include <osg/Group>   
-#include <osgDB/WriteFile>   
+#include <osgDB/WriteFile>  
+
 #include <osgUtil/Optimizer>   
 #include <osgEarth/Utils>
-
+#include <osgEarth/EarthManipulator>
 #include <osgEarth/Sky>
 #include <osgEarth/DateTime>
+
+#include <osgEarth/MapNode>
+#include <osgEarth/ExampleResources>
+#include <osgEarth/ImageOverlay>
+#include <osgEarth/CircleNode>
+#include <osgEarth/RectangleNode>
+#include <osgEarth/EllipseNode>
+#include <osgEarth/PlaceNode>
+#include <osgEarth/LabelNode>
+#include <osgEarth/LocalGeometryNode>
+#include <osgEarth/FeatureNode>
+#include <osgEarth/ImageOverlayEditor>
+#include <osgEarth/GeometryFactory>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -27,6 +41,10 @@ MainWindow::MainWindow(QWidget *parent)
 	ui.widget_2->setLayout(layout);
 
 	connect(_pOsgWidget, SIGNAL(initialize()), this, SLOT(initOsgWindow()));
+}
+
+void MainWindow::init()
+{
 }
 
 osg::Camera* MainWindow::backGround(QString sImagePath, int iWidth, int iHeight)
@@ -92,6 +110,8 @@ void MainWindow::on_pushButton_clear_clicked()
 void MainWindow::on_pushButton_mkNode_clicked()
 {
 	initOsgEarthWindow();
+
+	addCustomNode();
 	return;
 
 // 	osg::ref_ptr<osg::Node> root = createSceneGraph();
@@ -158,7 +178,7 @@ void MainWindow::initOsgEarthWindow()
 	osgEarth::initialize();
 
 	m_rootNode = new osg::Group();
-	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile("F:/work/Project/MutilObject/bin/Data/map/mymap.earth");
+	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile("mymap.earth");
 	if (nullptr == node)
 		return;
 
@@ -175,7 +195,7 @@ void MainWindow::initOsgEarthWindow()
 	}
 
 	_viewer = _pOsgWidget->getOsgViewer();
- 	_viewer->setCameraManipulator(new osgGA::TrackballManipulator);
+ 	_viewer->setCameraManipulator(new osgEarth::EarthManipulator);
 
 	m_rootNode->addChild(node.get());
 
@@ -188,10 +208,99 @@ void MainWindow::initOsgEarthWindow()
 	skyNode->attach(_viewer, 1);
 	m_rootNode->addChild(skyNode);
 
-
 	osgUtil::Optimizer optimizer;
 	optimizer.optimize(m_rootNode.get());
 	_viewer->setSceneData(m_rootNode.get());
 	_viewer->realize();
-//	_viewer->run();
+}
+
+void MainWindow::addCustomNode()
+{
+	using namespace osgEarth;
+	using namespace osgEarth::Util;
+	using namespace osgEarth::Contrib;
+	using namespace osgEarth::Util;
+
+	// find the map node that we loaded.
+	MapNode* mapNode = MapNode::findMapNode(m_MapNode);
+	if (!mapNode)
+		return ;
+
+	// Group to hold all our annotation elements.
+	osg::Group* annoGroup = new osg::Group();
+	m_MapNode->addChild(annoGroup);
+
+	// Make a group for labels
+	osg::Group* labelGroup = new osg::Group();
+	annoGroup->addChild(labelGroup);
+
+	osg::Group* editGroup = new osg::Group();
+	m_MapNode->addChild(editGroup);
+
+	// Style our labels:
+	Style labelStyle;
+	labelStyle.getOrCreate<TextSymbol>()->alignment() = TextSymbol::ALIGN_CENTER_TOP;
+	labelStyle.getOrCreate<TextSymbol>()->fill()->color() = Color::Yellow;
+
+	// A lat/long SRS for specifying points.
+	const SpatialReference* geoSRS = mapNode->getMapSRS()->getGeographicSRS();
+	// A series of place nodes (an icon with a text label)
+	{
+		Style pm;
+		pm.getOrCreate<IconSymbol>()->url()->setLiteral("./data/placemark32.png");
+		pm.getOrCreate<IconSymbol>()->declutter() = true;
+		pm.getOrCreate<TextSymbol>()->halo() = Color("#0f0f0f");
+
+		// bunch of pins:
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -74.00, 40.71), "New York", pm));
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -77.04, 38.85), "Washington, DC", pm));
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -118.40, 33.93), "Los Angeles", pm));
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -71.03, 42.37), "Boston", pm));
+
+		// test with an LOD:
+		osg::LOD* lod = new osg::LOD();
+		lod->addChild(new PlaceNode(GeoPoint(geoSRS, 14.68, 50.0), "Prague", pm), 50000, 2e6);
+		labelGroup->addChild(lod);
+
+		// absolute altitude:
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -87.65, 41.90, 5000, ALTMODE_RELATIVE), "Chicago", pm));
+	}
+
+	// a box that follows lines of latitude (rhumb line interpolation, the default)
+	// and flashes on and off using a cull callback.
+	{
+		struct C : public osg::NodeCallback {
+			void operator()(osg::Node* n, osg::NodeVisitor* nv) {
+				static int i = 0;
+				i++;
+				if (i % 100 < 50)
+					traverse(n, nv);
+			}
+		};
+		Geometry* geom = new osgEarth::Polygon();
+		geom->push_back(osg::Vec3d(0, 40, 0));
+		geom->push_back(osg::Vec3d(-60, 40, 0));
+		geom->push_back(osg::Vec3d(-60, 60, 0));
+		geom->push_back(osg::Vec3d(0, 60, 0));
+
+		Feature* feature = new Feature(geom, geoSRS);
+		feature->geoInterp() = GEOINTERP_RHUMB_LINE;
+
+		Style geomStyle;
+		geomStyle.getOrCreate<LineSymbol>()->stroke()->color() = Color::Cyan;
+		geomStyle.getOrCreate<LineSymbol>()->stroke()->width() = 5.0f;
+		geomStyle.getOrCreate<LineSymbol>()->tessellationSize()->set(75000, Units::METERS);
+		geomStyle.getOrCreate<RenderSymbol>()->depthOffset()->enabled() = true;
+
+		FeatureNode* fnode = new FeatureNode(feature, geomStyle);
+
+		fnode->addCullCallback(new C());
+
+		annoGroup->addChild(fnode);
+
+		LabelNode* label = new LabelNode("Rhumb line polygon", labelStyle);
+		label->setPosition(GeoPoint(geoSRS, -30, 50));
+		labelGroup->addChild(label);
+	}
+
 }
