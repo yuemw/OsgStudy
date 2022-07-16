@@ -3,17 +3,20 @@
 #include <QtWidgets/QMainWindow>
 #include "ui_osgearthqttest.h"
 
-#include <windows.h>
-#include <stdio.h>
-#include <tchar.h>
+#include <osg/io_utils>
+#include <osg/MatrixTransform>
+#include <osg/Depth>
+#include <osg/AnimationPath>
 #include <osgQOpenGL/osgQOpenGLWidget>
-#include <osgGA/TrackballManipulator>
 #include <osgViewer/Viewer>
-#include <osgDB/ReadFile>
-#include <osg/Texture2D>
-#include <osgViewer/ViewerEventHandlers>
-#include <osgGA/StateSetManipulator>
 #include <osgEarth/MapNode>
+#include <osgEarth/SpatialReference>
+#include <osgEarth/AutoClipPlaneHandler>
+#include <osgEarth/LinearLineOfSight>
+#include <osgEarth/RadialLineOfSight>
+#include <osgEarth/TerrainTileNode>
+#include <osgEarth/FileUtils>
+#include <osgEarth/GeoData>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -35,19 +38,27 @@ private slots:
 	void			on_pushButton_mkNode_clicked();
 	
 	void			initOsgWindow();
+	void			initOsgEarthWindow();
 
 private:
 	osg::ref_ptr<osg::Node> createSceneGraph();
-	void			initOsgEarthWindow();
+	void			addGraticule();
 	void			addCustomNode();
+
+	osg::Node*			createPlane(osg::Node* node, const osgEarth::GeoPoint& pos,
+		const osgEarth::SpatialReference* mapSRS, double radius, double time);
+	osg::AnimationPath* createAnimationPath(const osgEarth::GeoPoint& pos, const osgEarth::SpatialReference* mapSRS,
+		float radius, double looptime);
+
+	void				addPlane();
+
 private:
-    Ui::OsgEarthQtTest			ui;
-	osgQOpenGLWidget*			_pOsgWidget;
+    Ui::OsgEarthQtTest				ui;
+	osgQOpenGLWidget*				_pOsgWidget;
 	osg::ref_ptr<osgViewer::Viewer> _viewer;
 
-	QString						_fileName;
+	QString							_fileName;
 
-	osg::ref_ptr<osg::Group>	m_rootNode;
-	osg::ref_ptr<osgEarth::MapNode> m_MapNode;
-	osg::ref_ptr<osgEarth::Map>		m_Map;
+	osg::ref_ptr<osg::Group>		m_rootNode;
+	osg::ref_ptr<osgEarth::MapNode> m_mapNode;
 };

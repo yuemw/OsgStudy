@@ -2,19 +2,20 @@
 #include <QFileDialog>
 #include <QDir>
 #include <QHBoxLayout>
+#include <QTimer>
  
 #include <osg/Node>   
 #include <osg/Geode>   
 #include <osg/Group>   
+#include <osg/Matrixd>
 #include <osgDB/WriteFile>  
+#include <osgUtil/Optimizer>
+#include <osgGA/TrackballManipulator>
+#include <osgDB/ReadFile>
+#include <osgViewer/ViewerEventHandlers>
+#include <osgGA/StateSetManipulator>
 
-#include <osgUtil/Optimizer>   
-#include <osgEarth/Utils>
 #include <osgEarth/EarthManipulator>
-#include <osgEarth/Sky>
-#include <osgEarth/DateTime>
-
-#include <osgEarth/MapNode>
 #include <osgEarth/ExampleResources>
 #include <osgEarth/ImageOverlay>
 #include <osgEarth/CircleNode>
@@ -26,11 +27,23 @@
 #include <osgEarth/FeatureNode>
 #include <osgEarth/ImageOverlayEditor>
 #include <osgEarth/GeometryFactory>
+#include <osgEarth/GLUtils>
+#include <osgEarth/LatLongFormatter>
+#include <osgEarth/GeodeticGraticule>
+#include <osgEarth/MouseCoordsTool>
+#include <osgEarth/ModelNode>
+
+using namespace osgEarth;
+using namespace osgEarth::Util;
+using namespace osgEarth::Util::Controls;
+using namespace osgEarth::Contrib;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+
+	this->setMinimumSize(1024, 768);
 
 	ui.lineEdit_file->setEnabled(false);
 
@@ -45,6 +58,9 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::init()
 {
+	QTimer::singleShot(100, this, [&]() {
+		initOsgEarthWindow();
+	});
 }
 
 osg::Camera* MainWindow::backGround(QString sImagePath, int iWidth, int iHeight)
@@ -109,9 +125,10 @@ void MainWindow::on_pushButton_clear_clicked()
 
 void MainWindow::on_pushButton_mkNode_clicked()
 {
-	initOsgEarthWindow();
-
+//	initOsgEarthWindow();
+	addGraticule();
 	addCustomNode();
+
 	return;
 
 // 	osg::ref_ptr<osg::Node> root = createSceneGraph();
@@ -166,6 +183,7 @@ void MainWindow::initOsgWindow()
 	_viewer = _pOsgWidget->getOsgViewer();
 	_viewer->getCamera()->setClearMask(GL_DEPTH_BUFFER_BIT);
 	_viewer->setCameraManipulator(new osgGA::TrackballManipulator);
+
 	osg::ref_ptr<osg::Group> group = new osg::Group;
 	group->addChild(backGround("F:/program/osg/testcode/OsgEarthQtTest01/OsgEarthQtTest01/sky.jpg", _pOsgWidget->width(), _pOsgWidget->height()));
 	group->addChild(osgDB::readNodeFile(_fileName.toStdString()));
@@ -178,24 +196,25 @@ void MainWindow::initOsgEarthWindow()
 	osgEarth::initialize();
 
 	m_rootNode = new osg::Group();
-	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile("mymap.earth");
+	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile("F:/work/Project/MutilObject/bin/Data/map/3d.earth");//mymap.earth
 	if (nullptr == node)
 		return;
 
 	if (node.valid())
 	{
-		m_MapNode = osgEarth::MapNode::get(node.get());
+		m_mapNode = osgEarth::MapNode::get(node.get());
 		// open the map node:
-		if (!m_MapNode->open())
+		if (!m_mapNode->open())
 		{
 			OE_WARN << "Failed to open MapNode" << std::endl;
 		}
-
-		m_Map = m_MapNode->getMap();
 	}
 
 	_viewer = _pOsgWidget->getOsgViewer();
  	_viewer->setCameraManipulator(new osgEarth::EarthManipulator);
+
+	// initialize the top level state
+	GLUtils::setGlobalDefaults(_viewer->getCamera()->getOrCreateStateSet());
 
 	m_rootNode->addChild(node.get());
 
@@ -211,7 +230,44 @@ void MainWindow::initOsgEarthWindow()
 	osgUtil::Optimizer optimizer;
 	optimizer.optimize(m_rootNode.get());
 	_viewer->setSceneData(m_rootNode.get());
+
+	// disable the small-feature culling
+	_viewer->getCamera()->setSmallFeatureCullingPixelSize(-1.0f);
+
+	// set a near/far ratio that is smaller than the default. This allows us to get
+	// closer to the ground without near clipping. If you need more, use --logdepth
+	_viewer->getCamera()->setNearFarRatio(0.0001);
+
+	// finalize setup and run.
+	_viewer->addEventHandler(new osgViewer::StatsHandler());
+	_viewer->addEventHandler(new osgViewer::WindowSizeHandler());
+	_viewer->addEventHandler(new osgViewer::ThreadingHandler());
+	_viewer->addEventHandler(new osgGA::StateSetManipulator(_viewer->getCamera()->getOrCreateStateSet()));
 	_viewer->realize();
+}
+
+//添加经纬度线
+void MainWindow::addGraticule()
+{
+	Formatter* formatter = 0L;
+	{
+		GeodeticGraticule* gr = new GeodeticGraticule();
+		m_mapNode->getMap()->addLayer(gr);
+		formatter = new LatLongFormatter();
+	}
+
+	// mouse coordinate readout:
+	ControlCanvas* canvas = new ControlCanvas();
+	m_rootNode->addChild(canvas);
+	VBox* vbox = new VBox();
+	canvas->addControl(vbox);
+
+	LabelControl* readout = new LabelControl();
+	vbox->addControl(readout);
+
+	MouseCoordsTool* tool = new MouseCoordsTool(m_mapNode);
+	tool->addCallback(new MouseCoordsLabelCallback(readout, formatter));
+	_viewer->addEventHandler(tool);
 }
 
 void MainWindow::addCustomNode()
@@ -222,20 +278,20 @@ void MainWindow::addCustomNode()
 	using namespace osgEarth::Util;
 
 	// find the map node that we loaded.
-	MapNode* mapNode = MapNode::findMapNode(m_MapNode);
-	if (!mapNode)
-		return ;
+// 	MapNode* mapNode = MapNode::findMapNode(m_MapNode);
+// 	if (!mapNode)
+// 		return ;
 
 	// Group to hold all our annotation elements.
 	osg::Group* annoGroup = new osg::Group();
-	m_MapNode->addChild(annoGroup);
+	m_mapNode->addChild(annoGroup);
 
 	// Make a group for labels
 	osg::Group* labelGroup = new osg::Group();
 	annoGroup->addChild(labelGroup);
 
 	osg::Group* editGroup = new osg::Group();
-	m_MapNode->addChild(editGroup);
+	m_mapNode->addChild(editGroup);
 
 	// Style our labels:
 	Style labelStyle;
@@ -243,7 +299,7 @@ void MainWindow::addCustomNode()
 	labelStyle.getOrCreate<TextSymbol>()->fill()->color() = Color::Yellow;
 
 	// A lat/long SRS for specifying points.
-	const SpatialReference* geoSRS = mapNode->getMapSRS()->getGeographicSRS();
+	const SpatialReference* geoSRS = m_mapNode->getMapSRS()->getGeographicSRS();
 	// A series of place nodes (an icon with a text label)
 	{
 		Style pm;
@@ -256,6 +312,7 @@ void MainWindow::addCustomNode()
 		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -77.04, 38.85), "Washington, DC", pm));
 		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -118.40, 33.93), "Los Angeles", pm));
 		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -71.03, 42.37), "Boston", pm));
+		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, 116.23, 39.54), "Beijing", pm));
 
 		// test with an LOD:
 		osg::LOD* lod = new osg::LOD();
@@ -266,41 +323,308 @@ void MainWindow::addCustomNode()
 		labelGroup->addChild(new PlaceNode(GeoPoint(geoSRS, -87.65, 41.90, 5000, ALTMODE_RELATIVE), "Chicago", pm));
 	}
 
-	// a box that follows lines of latitude (rhumb line interpolation, the default)
-	// and flashes on and off using a cull callback.
+	// A path using great-circle interpolation.
+	// Keep a pointer to it so we can modify it later on.
+	FeatureNode* pathNode = 0;
 	{
-		struct C : public osg::NodeCallback {
-			void operator()(osg::Node* n, osg::NodeVisitor* nv) {
-				static int i = 0;
-				i++;
-				if (i % 100 < 50)
-					traverse(n, nv);
-			}
-		};
-		Geometry* geom = new osgEarth::Polygon();
-		geom->push_back(osg::Vec3d(0, 40, 0));
-		geom->push_back(osg::Vec3d(-60, 40, 0));
-		geom->push_back(osg::Vec3d(-60, 60, 0));
-		geom->push_back(osg::Vec3d(0, 60, 0));
+		Geometry* path = new LineString();
+		path->push_back(osg::Vec3d(-74, 40.714, 0));   // New York
+		path->push_back(osg::Vec3d(116.23, 39.54, 0)); // Tokyo
 
-		Feature* feature = new Feature(geom, geoSRS);
-		feature->geoInterp() = GEOINTERP_RHUMB_LINE;
+		Feature* pathFeature = new Feature(path, geoSRS);
+		pathFeature->geoInterp() = GEOINTERP_RHUMB_LINE;
 
-		Style geomStyle;
-		geomStyle.getOrCreate<LineSymbol>()->stroke()->color() = Color::Cyan;
-		geomStyle.getOrCreate<LineSymbol>()->stroke()->width() = 5.0f;
-		geomStyle.getOrCreate<LineSymbol>()->tessellationSize()->set(75000, Units::METERS);
-		geomStyle.getOrCreate<RenderSymbol>()->depthOffset()->enabled() = true;
+		Style pathStyle;
+		pathStyle.getOrCreate<LineSymbol>()->stroke()->color() = Color::White;
+		pathStyle.getOrCreate<LineSymbol>()->stroke()->width() = 1.0f;
+		pathStyle.getOrCreate<LineSymbol>()->stroke()->smooth() = true;
+		pathStyle.getOrCreate<LineSymbol>()->tessellationSize()->set(75000, Units::METERS);
+		pathStyle.getOrCreate<PointSymbol>()->size() = 8;
+		pathStyle.getOrCreate<PointSymbol>()->fill()->color() = Color::Red;
+		pathStyle.getOrCreate<PointSymbol>()->smooth() = true;
+		pathStyle.getOrCreate<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
+		pathStyle.getOrCreate<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_GPU;
+		pathStyle.getOrCreate<RenderSymbol>()->depthOffset()->enabled() = true;
 
-		FeatureNode* fnode = new FeatureNode(feature, geomStyle);
+		//OE_INFO << "Path extent = " << pathFeature->getExtent().toString() << std::endl;
 
-		fnode->addCullCallback(new C());
+		pathNode = new FeatureNode(pathFeature, pathStyle);
+		annoGroup->addChild(pathNode);
 
-		annoGroup->addChild(fnode);
-
-		LabelNode* label = new LabelNode("Rhumb line polygon", labelStyle);
-		label->setPosition(GeoPoint(geoSRS, -30, 50));
+		LabelNode* label = new LabelNode("Great circle path", labelStyle);
+		label->setPosition(GeoPoint(geoSRS, -170, 61.2));
 		labelGroup->addChild(label);
 	}
+	//--------------------------------------------------------------------
 
+	// Two circle segments around New Orleans.
+	{
+		Style circleStyle;
+		circleStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Cyan, 0.5);
+		circleStyle.getOrCreate<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
+		circleStyle.getOrCreate<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_DRAPE;
+
+		CircleNode* circle = new CircleNode();
+		circle->set(GeoPoint(geoSRS, -90.25, 29.98, 1000., ALTMODE_RELATIVE),
+			Distance(300, Units::KILOMETERS),
+			circleStyle,
+			Angle(-45.0, Units::DEGREES),
+			Angle(45.0, Units::DEGREES),
+			true);
+
+		annoGroup->addChild(circle);
+	}
+	{
+		Style circleStyle;
+		circleStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Red, 0.5);
+		circleStyle.getOrCreate<ExtrusionSymbol>()->height() = 250000.0;
+		circleStyle.getOrCreate<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
+		circleStyle.getOrCreate<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_DRAPE;
+
+		CircleNode* circle = new CircleNode();
+		circle->set(
+			GeoPoint(geoSRS, -90.25, 29.98, 1000., ALTMODE_RELATIVE),
+			Distance(300, Units::KILOMETERS),
+			circleStyle,
+			Angle(45.0, Units::DEGREES),
+			Angle(360.0 - 45.0, Units::DEGREES),
+			true);
+
+		annoGroup->addChild(circle);
+	}
+	//--------------------------------------------------------------------
+
+	// An extruded ellipse around Miami.
+	{
+		Style ellipseStyle;
+		ellipseStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Orange, 0.75);
+		ellipseStyle.getOrCreate<ExtrusionSymbol>()->height() = 250000.0; // meters MSL
+		EllipseNode* ellipse = new EllipseNode();
+		ellipse->set(
+			GeoPoint(geoSRS, -80.28, 25.82, 0.0, ALTMODE_RELATIVE),
+			Distance(250, Units::MILES),
+			Distance(100, Units::MILES),
+			Angle(0, Units::DEGREES),
+			ellipseStyle,
+			Angle(45.0, Units::DEGREES),
+			Angle(360.0 - 45.0, Units::DEGREES),
+			true);
+		annoGroup->addChild(ellipse);
+	}
+	{
+		Style ellipseStyle;
+		ellipseStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Blue, 0.75);
+		ellipseStyle.getOrCreate<ExtrusionSymbol>()->height() = 250000.0; // meters MSL
+		EllipseNode* ellipse = new EllipseNode();
+		ellipse->set(
+			GeoPoint(geoSRS, -80.28, 25.82, 0.0, ALTMODE_RELATIVE),
+			Distance(250, Units::MILES),
+			Distance(100, Units::MILES),
+			Angle(0, Units::DEGREES),
+			ellipseStyle,
+			Angle(-40.0, Units::DEGREES),
+			Angle(40.0, Units::DEGREES),
+			true);
+		annoGroup->addChild(ellipse);
+	}
+
+	//--------------------------------------------------------------------
+
+	{
+		// A rectangle around San Diego
+		Style rectStyle;
+		rectStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Green, 0.5);
+		rectStyle.getOrCreate<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN;
+		rectStyle.getOrCreate<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_DRAPE;
+		rectStyle.getOrCreate<ExtrusionSymbol>()->height() = 200000.0; // meters MSL
+		RectangleNode* rect = new RectangleNode(
+			GeoPoint(geoSRS, -85.28, 25.82, 0.0),
+			Distance(300, Units::KILOMETERS),
+			Distance(600, Units::KILOMETERS),
+			rectStyle);
+		annoGroup->addChild(rect);
+	}
+
+	//--------------------------------------------------------------------
+		// An extruded polygon roughly the shape of Utah. Here we demonstrate the
+	// FeatureNode, where you create a geographic geometry and use it as an
+	// annotation.
+	{
+		Geometry* utah = new osgEarth::Polygon();
+		utah->push_back(-114.052, 37.0);
+		utah->push_back(-109.054, 37.0);
+		utah->push_back(-109.054, 41.0);
+		utah->push_back(-111.040, 41.0);
+		utah->push_back(-111.080, 42.059);
+		utah->push_back(-114.080, 42.024);
+
+		Style utahStyle;
+		utahStyle.getOrCreate<ExtrusionSymbol>()->height() = 250000.0; // meters MSL
+		utahStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::White, 0.8);
+
+		Feature*     utahFeature = new Feature(utah, geoSRS);
+		FeatureNode* featureNode = new FeatureNode(utahFeature, utahStyle);
+
+		annoGroup->addChild(featureNode);
+	}
+	//--------------------------------------------------------------------
+
+	// an image overlay.
+	ImageOverlay* imageOverlay = 0L;
+	osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("./data/USFLAG.TGA");
+	if (image.valid())
+	{
+		imageOverlay = new ImageOverlay(m_mapNode, image.get());
+		imageOverlay->setBounds(Bounds(-100.0, 35.0, -90.0, 40.0));
+
+		annoGroup->addChild(imageOverlay);
+
+		editGroup->addChild(new ImageOverlayEditor(imageOverlay));
+	}
+	//--------------------------------------------------------------------
+
+	// a model node with auto scaling.
+	{
+		Style style;
+		style.getOrCreate<ModelSymbol>()->autoScale() = true;
+		style.getOrCreate<ModelSymbol>()->url()->setLiteral("./data/red_flag.osg.50.scale");
+		ModelNode* modelNode = new ModelNode(m_mapNode, style);
+		modelNode->setPosition(GeoPoint(geoSRS, -100, 52, 100));
+		annoGroup->addChild(modelNode);
+	}
+	//--------------------------------------------------------------------
+
+	//Load a plane model.
+	addPlane();
+//	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.1.scale");
+
+	//Create 2 moving planes
+//	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 50000, ALTMODE_ABSOLUTE), geoSRS, 5000, 20);
+//	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -121.321, 46.2589, 1390.09, ALTMODE_ABSOLUTE), geoSRS, 3000, 5);
+//	m_rootNode->addChild(plane1);
+//	m_rootNode->addChild(plane2);
+}
+
+osg::Node* MainWindow::createPlane(osg::Node* node, const GeoPoint& pos, const SpatialReference* mapSRS, double radius, double time)
+{
+	osg::MatrixTransform* positioner = new osg::MatrixTransform;
+	positioner->addChild(node);
+	osg::AnimationPath* animationPath = createAnimationPath(pos, mapSRS, radius, time);
+	positioner->setUpdateCallback(new osg::AnimationPathCallback(animationPath, 0.0, 1.0));
+	return positioner;
+}
+
+osg::AnimationPath* MainWindow::createAnimationPath(const GeoPoint& pos, const SpatialReference* mapSRS, float radius, double looptime)
+{
+	// set up the animation path
+	osg::AnimationPath* animationPath = new osg::AnimationPath;
+	animationPath->setLoopMode(osg::AnimationPath::LOOP);
+
+	int numSamples = 40;
+
+	double delta = osg::PI * 2.0 / (double)numSamples;
+
+	//Get the center point in geocentric
+	GeoPoint mapPos = pos.transform(mapSRS);
+	osg::Vec3d centerWorld;
+	mapPos.toWorld(centerWorld);
+
+	bool isProjected = mapSRS->isProjected();
+
+	osg::Vec3d up = isProjected ? osg::Vec3d(0, 0, 1) : centerWorld;
+	up.normalize();
+
+	//Get the "side" vector
+	osg::Vec3d side = isProjected ? osg::Vec3d(1, 0, 0) : up ^ osg::Vec3d(0, 0, 1);
+
+
+	double time = 0.0f;
+	double time_delta = looptime / (double)numSamples;
+
+	osg::Vec3d firstPosition;
+	osg::Quat firstRotation;
+
+	for (unsigned int i = 0; i < (unsigned int)numSamples; i++)
+	{
+		double angle = delta * (double)i;
+		osg::Quat quat(angle, up);
+		osg::Vec3d spoke = quat * (side * radius);
+		osg::Vec3d end = centerWorld + spoke;
+
+		osg::Quat makeUp;
+		makeUp.makeRotate(osg::Vec3d(0, 0, 1), up);
+
+		osg::Quat rot = makeUp;
+		animationPath->insert(time, osg::AnimationPath::ControlPoint(end, rot));
+		if (i == 0)
+		{
+			firstPosition = end;
+			firstRotation = rot;
+		}
+		time += time_delta;
+	}
+
+	animationPath->insert(time, osg::AnimationPath::ControlPoint(firstPosition, firstRotation));
+
+	return animationPath;
+}
+
+
+void MainWindow::addPlane()
+{
+	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive");
+	if (!plane.valid())
+		return;
+
+	osg::MatrixTransform* mtFlySelf = new osg::MatrixTransform;
+	mtFlySelf->setMatrix(osg::Matrixd::scale(10, 10, 10));
+	mtFlySelf->addChild(plane);
+
+	osg::MatrixTransform* mtFly = new osg::MatrixTransform;
+	mtFly->addChild(mtFlySelf);
+	m_rootNode->addChild(mtFly);
+
+	osg::Matrixd mtTemp;
+	m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(
+		osg::DegreesToRadians(52.0),
+		osg::DegreesToRadians(-100.3),
+		30000,
+		mtTemp);
+
+	mtFly->setMatrix(mtTemp);
+
+#if 0
+	//添加模型
+	osg::ref_ptr<osg::Node> nodeFile = osgDB::readNodeFile("./data/tree.osg");
+	if (!nodeFile.valid())
+	{
+		return;
+	}
+	osg::ref_ptr<osg::MatrixTransform> nodeMt = new osg::MatrixTransform;//平移矩阵
+
+	osg::ref_ptr<osg::MatrixTransform> nodeMtR = new osg::MatrixTransform;//旋转矩阵
+	nodeMt->addChild(nodeMtR);
+	osg::ref_ptr<osg::MatrixTransform> nodeMtS = new osg::MatrixTransform;//缩放矩阵
+	nodeMtR->addChild(nodeMtS);
+	nodeMtS->addChild(nodeFile);
+
+	m_mapNode->addChild(nodeMt);
+
+	osg::Matrix m;
+	m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(
+		osg::DegreesToRadians(-100.3),
+		osg::DegreesToRadians(52.0),
+		30000,
+		m);
+
+	nodeMt->setMatrix(m);
+	nodeMt->addDescription("model-3d");
+
+	nodeMt->getOrCreateStateSet()->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+	nodeMt->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+	nodeMt->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
+	nodeMt->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+	//设置模型显示比例
+	nodeMtS->setMatrix(osg::Matrix::scale(5, 5, 5));
+#endif
 }
