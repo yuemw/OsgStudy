@@ -496,18 +496,21 @@ void MainWindow::addCustomNode()
 
 	//Load a plane model.
 	addPlane();
-//	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.1.scale");
 
+	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.500,500,500.scale");
 	//Create 2 moving planes
-//	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 50000, ALTMODE_ABSOLUTE), geoSRS, 5000, 20);
-//	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -121.321, 46.2589, 1390.09, ALTMODE_ABSOLUTE), geoSRS, 3000, 5);
-//	m_rootNode->addChild(plane1);
-//	m_rootNode->addChild(plane2);
+	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 50000, 20);
+	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
+	m_rootNode->addChild(plane1);
+	m_rootNode->addChild(plane2);
 }
 
 osg::Node* MainWindow::createPlane(osg::Node* node, const GeoPoint& pos, const SpatialReference* mapSRS, double radius, double time)
 {
 	osg::MatrixTransform* positioner = new osg::MatrixTransform;
+	positioner->getOrCreateStateSet()->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+	positioner->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+	positioner->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
 	positioner->addChild(node);
 	osg::AnimationPath* animationPath = createAnimationPath(pos, mapSRS, radius, time);
 	positioner->setUpdateCallback(new osg::AnimationPathCallback(animationPath, 0.0, 1.0));
@@ -572,12 +575,13 @@ osg::AnimationPath* MainWindow::createAnimationPath(const GeoPoint& pos, const S
 
 void MainWindow::addPlane()
 {
-	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive");
+#if 1
+	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive.1000,1000,1000.scale");
 	if (!plane.valid())
 		return;
 
 	osg::MatrixTransform* mtFlySelf = new osg::MatrixTransform;
-	mtFlySelf->setMatrix(osg::Matrixd::scale(10, 10, 10));
+	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(90, osg::Vec3d(1,1,1)));
 	mtFlySelf->addChild(plane);
 
 	osg::MatrixTransform* mtFly = new osg::MatrixTransform;
@@ -593,9 +597,14 @@ void MainWindow::addPlane()
 
 	mtFly->setMatrix(mtTemp);
 
-#if 0
+	mtFly->getOrCreateStateSet()->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+	mtFly->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+	mtFly->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
+//	mtFly->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+
+#else
 	//Ìí¼ÓÄ£ÐÍ
-	osg::ref_ptr<osg::Node> nodeFile = osgDB::readNodeFile("./data/tree.osg");
+	osg::ref_ptr<osg::Node> nodeFile = osgDB::readNodeFile("./data/J10.ive.1000,1000,1000.scale");
 	if (!nodeFile.valid())
 	{
 		return;
@@ -612,8 +621,8 @@ void MainWindow::addPlane()
 
 	osg::Matrix m;
 	m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(
-		osg::DegreesToRadians(-100.3),
 		osg::DegreesToRadians(52.0),
+		osg::DegreesToRadians(-100.3),
 		30000,
 		m);
 
