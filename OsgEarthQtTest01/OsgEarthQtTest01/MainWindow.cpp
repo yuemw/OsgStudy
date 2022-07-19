@@ -7,6 +7,7 @@
 #include <osg/Node>   
 #include <osg/Geode>   
 #include <osg/Group>   
+#include <osg/Array>
 #include <osg/Matrixd>
 #include <osgDB/WriteFile>  
 #include <osgUtil/Optimizer>
@@ -31,6 +32,7 @@
 #include <osgEarth/GeodeticGraticule>
 #include <osgEarth/MouseCoordsTool>
 #include <osgEarth/ModelNode>
+#include <osgEarth/GeoMath>
 
 #include "MyPlanPathCallback.h"
 
@@ -503,8 +505,8 @@ void MainWindow::addCustomNode()
 	//Create 2 moving planes
 	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 100000, 20);
 	m_rootNode->addChild(plane1);
-	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
-	m_rootNode->addChild(plane2);
+// 	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
+// 	m_rootNode->addChild(plane2);
 
 	//	startTrackNode(plane1);
 }
@@ -558,7 +560,7 @@ osg::AnimationPath* MainWindow::createAnimationPath(const GeoPoint& pos, const S
 		osg::Vec3d end = centerWorld + spoke;
 
 		osg::Quat makeUp;
-		makeUp.makeRotate(osg::Vec3d(0, 0, 1), up);
+		makeUp.makeRotate(osg::Vec3d(0.3, 0, 1), up);
 
 		osg::Quat rot = makeUp;
 		animationPath->insert(time, osg::AnimationPath::ControlPoint(end, rot));
@@ -581,12 +583,12 @@ void MainWindow::addPlane()
 	osg::ref_ptr<CoordinateSystemNode> csn = new CoordinateSystemNode;
 	csn->setEllipsoidModel(new osg::EllipsoidModel());
 
-	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive.1000,1000,1000.scale");
+	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive.200,200,200.scale");
 	if (!plane.valid())
 		return;
 
 	osg::MatrixTransform* mtFlySelf = new osg::MatrixTransform;
-	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(30, osg::Vec3d(0,-1,1)));
+	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(0, osg::Vec3d(0,1,0)));
 	mtFlySelf->addChild(plane);
 
 	osg::MatrixTransform* mtFly = new osg::MatrixTransform;
@@ -597,7 +599,7 @@ void MainWindow::addPlane()
 	csn->getEllipsoidModel()->computeLocalToWorldTransformFromLatLongHeight(
 		osg::DegreesToRadians(52.0),
 		osg::DegreesToRadians(-100.3),
-		30000,
+		1000,
 		mtTemp);
 
 	mtFly->setMatrix(mtTemp);
@@ -606,6 +608,11 @@ void MainWindow::addPlane()
 	mtFly->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+
+	osg::AnimationPath* path = createPlanePath();
+	mtFly->setUpdateCallback(new osg::AnimationPathCallback(path, 0.0, 1.0));
+
+	startTrackNode(plane);
 
 #else
 	//添加模型
@@ -651,3 +658,108 @@ void MainWindow::startTrackNode(osg::Node* node)
 	vp.pitch()->set(-120.0, osgEarth::Units::DEGREES);//观察的角度
 	m_em->setViewpoint(vp, 1.0);
 }
+
+osg::AnimationPath* MainWindow::createPlanePath()
+{
+	osg::ref_ptr<osg::Vec4Array> points = new osg::Vec4Array();
+	points->push_back(osg::Vec4(-100.3321, 52.0, 1000, 800));
+	points->push_back(osg::Vec4(-100.36, 52.1, 2000, 800));
+	points->push_back(osg::Vec4(-100.41, 52.20, 2500, 1000));
+	points->push_back(osg::Vec4(-100.53, 52.22, 3000, 1500));
+	points->push_back(osg::Vec4(-100.93, 52.23, 3000, 1800));
+
+	osg::AnimationPath* animationPath = new osg::AnimationPath;
+	animationPath->setLoopMode(osg::AnimationPath::LOOP);
+
+	double horizonAngle = 0.0;
+	double verticalAngle = 0.0;
+	double time = 0.0;
+
+	osg::Matrix matrix;
+	osg::Quat _roration;
+
+	osg::Vec3d curPosition;
+	osg::Vec3d nextPosition;
+
+	for (osg::Vec4Array::iterator iter = points->begin(); iter != points->end(); ++iter)
+	{
+		osg::Vec4Array::iterator iter2 = iter;
+		++iter2;
+
+		//iter2 is end
+		if (iter2 == points->end())
+			break;
+
+		double x, y, z;
+		m_mapNode->getMapSRS()->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter->y()),
+			osg::DegreesToRadians(iter->x()), iter->z(), x, y, z);
+		curPosition = osg::Vec3d(x, y, z);
+		m_mapNode->getMapSRS()->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter2->y()),
+			osg::DegreesToRadians(iter2->x()), iter2->z(), x, y, z);
+		nextPosition = osg::Vec3d(x, y, z);
+
+		// 水平夹角
+		if (iter->x() == iter2->x())
+		{
+			horizonAngle = osg::PI_2;
+		}
+		else
+		{
+			horizonAngle = atan(iter2->y() - iter->y()) / (iter2->x() - iter->x());
+			if (iter2->x() > iter->x())
+			{
+				horizonAngle += osg::PI;
+			}
+		}
+
+		//垂直夹角
+		if (iter->z() == iter2->z())
+		{
+			verticalAngle = 0.0;
+		}
+		else
+		{
+			if (0 == sqrt(pow(getDistance(curPosition, nextPosition), 2) - pow((iter->z() - iter2->z()), 2)))
+			{
+				verticalAngle = osg::PI_2;
+			}
+			else
+			{
+				verticalAngle = atan((iter2->z() - iter->z()) / sqrt(pow(getDistance(curPosition, nextPosition), 2) - pow((iter->z() - iter2->z()), 2)));
+			}
+			if (verticalAngle >= osg::PI_2)
+				verticalAngle = osg::PI_2;
+			if (verticalAngle <= -osg::PI_2)
+				verticalAngle = -osg::PI_2;
+
+		}
+		// 求飞机的变换矩阵
+		m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(osg::DegreesToRadians(iter->y()),
+			osg::DegreesToRadians(iter->x()), iter->z(), matrix);
+		_roration.makeRotate(0, osg::Vec3(1, 0, 0), verticalAngle /*+ osg::PI_2*/, 
+			osg::Vec3(0, 1, 0), horizonAngle, osg::Vec3(0, 0, 1));
+		matrix.preMultRotate(_roration);
+		animationPath->insert(time, osg::AnimationPath::ControlPoint(curPosition, matrix.getRotate()));
+
+		// 求下一个点的时间
+		time += getRunTime(curPosition, nextPosition, iter2->w());
+	}
+
+	animationPath->insert(time, osg::AnimationPath::ControlPoint(nextPosition, matrix.getRotate()));
+	return animationPath;
+}
+
+double MainWindow::getDistance(osg::Vec3d pos1, osg::Vec3d pos2)
+{
+	double dist = osgEarth::GeoMath::distance(pos1, pos2, m_mapNode->getMapSRS());
+	return dist;
+}
+
+double MainWindow::getRunTime(osg::Vec3 from, osg::Vec3 to, double speed)
+{
+	if (0 == speed)
+		return 1000000;
+
+	return getDistance(from, to) / speed;
+}
+

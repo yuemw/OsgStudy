@@ -53,7 +53,10 @@ private:
 
 	void				addPlane();
 	void				startTrackNode(osg::Node* node);
+	osg::AnimationPath* createPlanePath();
 
+	double				getDistance(osg::Vec3d pos1, osg::Vec3d pos2);
+	double				getRunTime(osg::Vec3 from, osg::Vec3 to, double speed);
 private:
     Ui::OsgEarthQtTest				ui;
 	osgQOpenGLWidget*				_pOsgWidget;
