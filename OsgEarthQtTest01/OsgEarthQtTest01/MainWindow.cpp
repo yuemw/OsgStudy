@@ -15,7 +15,6 @@
 #include <osgViewer/ViewerEventHandlers>
 #include <osgGA/StateSetManipulator>
 
-#include <osgEarth/EarthManipulator>
 #include <osgEarth/ExampleResources>
 #include <osgEarth/ImageOverlay>
 #include <osgEarth/CircleNode>
@@ -32,6 +31,8 @@
 #include <osgEarth/GeodeticGraticule>
 #include <osgEarth/MouseCoordsTool>
 #include <osgEarth/ModelNode>
+
+#include "MyPlanPathCallback.h"
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
@@ -211,7 +212,8 @@ void MainWindow::initOsgEarthWindow()
 	}
 
 	_viewer = _pOsgWidget->getOsgViewer();
- 	_viewer->setCameraManipulator(new osgEarth::EarthManipulator);
+	m_em = new osgEarth::EarthManipulator;
+ 	_viewer->setCameraManipulator(m_em);
 
 	// initialize the top level state
 	GLUtils::setGlobalDefaults(_viewer->getCamera()->getOrCreateStateSet());
@@ -327,7 +329,7 @@ void MainWindow::addCustomNode()
 	// Keep a pointer to it so we can modify it later on.
 	FeatureNode* pathNode = 0;
 	{
-		Geometry* path = new LineString();
+		osgEarth::Geometry* path = new LineString();
 		path->push_back(osg::Vec3d(-74, 40.714, 0));   // New York
 		path->push_back(osg::Vec3d(116.23, 39.54, 0)); // Tokyo
 
@@ -450,7 +452,7 @@ void MainWindow::addCustomNode()
 	// FeatureNode, where you create a geographic geometry and use it as an
 	// annotation.
 	{
-		Geometry* utah = new osgEarth::Polygon();
+		osgEarth::Geometry* utah = new osgEarth::Polygon();
 		utah->push_back(-114.052, 37.0);
 		utah->push_back(-109.054, 37.0);
 		utah->push_back(-109.054, 41.0);
@@ -499,21 +501,22 @@ void MainWindow::addCustomNode()
 
 	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.500,500,500.scale");
 	//Create 2 moving planes
-	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 50000, 20);
-	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
+	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 100000, 20);
 	m_rootNode->addChild(plane1);
+	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
 	m_rootNode->addChild(plane2);
-}
 
+	//	startTrackNode(plane1);
+}
 osg::Node* MainWindow::createPlane(osg::Node* node, const GeoPoint& pos, const SpatialReference* mapSRS, double radius, double time)
 {
 	osg::MatrixTransform* positioner = new osg::MatrixTransform;
-	positioner->getOrCreateStateSet()->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+	positioner->getOrCreateStateSet()->setMode(GL_LIGHT0, osg::StateAttribute::ON);
 	positioner->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
 	positioner->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
 	positioner->addChild(node);
 	osg::AnimationPath* animationPath = createAnimationPath(pos, mapSRS, radius, time);
-	positioner->setUpdateCallback(new osg::AnimationPathCallback(animationPath, 0.0, 1.0));
+	positioner->setUpdateCallback(new MyPlanPathCallback(animationPath, 0.0, 1.0));
 	return positioner;
 }
 
@@ -572,16 +575,18 @@ osg::AnimationPath* MainWindow::createAnimationPath(const GeoPoint& pos, const S
 	return animationPath;
 }
 
-
 void MainWindow::addPlane()
 {
 #if 1
+	osg::ref_ptr<CoordinateSystemNode> csn = new CoordinateSystemNode;
+	csn->setEllipsoidModel(new osg::EllipsoidModel());
+
 	osg::ref_ptr<osg::Node> plane = osgDB::readNodeFile("./data/J10.ive.1000,1000,1000.scale");
 	if (!plane.valid())
 		return;
 
 	osg::MatrixTransform* mtFlySelf = new osg::MatrixTransform;
-	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(90, osg::Vec3d(1,1,1)));
+	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(30, osg::Vec3d(0,-1,1)));
 	mtFlySelf->addChild(plane);
 
 	osg::MatrixTransform* mtFly = new osg::MatrixTransform;
@@ -589,7 +594,7 @@ void MainWindow::addPlane()
 	m_rootNode->addChild(mtFly);
 
 	osg::Matrixd mtTemp;
-	m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(
+	csn->getEllipsoidModel()->computeLocalToWorldTransformFromLatLongHeight(
 		osg::DegreesToRadians(52.0),
 		osg::DegreesToRadians(-100.3),
 		30000,
@@ -597,10 +602,10 @@ void MainWindow::addPlane()
 
 	mtFly->setMatrix(mtTemp);
 
-	mtFly->getOrCreateStateSet()->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+	mtFly->getOrCreateStateSet()->setMode(GL_LIGHT0, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
-//	mtFly->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+	mtFly->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
 
 #else
 	//添加模型
@@ -636,4 +641,13 @@ void MainWindow::addPlane()
 	//设置模型显示比例
 	nodeMtS->setMatrix(osg::Matrix::scale(5, 5, 5));
 #endif
+}
+
+void MainWindow::startTrackNode(osg::Node* node)
+{
+	osgEarth::Viewpoint vp = m_em->getViewpoint();
+	vp.setNode(node);
+	vp.range()->set(250000.0, osgEarth::Units::METERS);//观察的距离
+	vp.pitch()->set(-120.0, osgEarth::Units::DEGREES);//观察的角度
+	m_em->setViewpoint(vp, 1.0);
 }

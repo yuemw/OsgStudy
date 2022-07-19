@@ -17,6 +17,7 @@
 #include <osgEarth/TerrainTileNode>
 #include <osgEarth/FileUtils>
 #include <osgEarth/GeoData>
+#include <osgEarth/EarthManipulator>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -51,6 +52,7 @@ private:
 		float radius, double looptime);
 
 	void				addPlane();
+	void				startTrackNode(osg::Node* node);
 
 private:
     Ui::OsgEarthQtTest				ui;
@@ -61,4 +63,5 @@ private:
 
 	osg::ref_ptr<osg::Group>		m_rootNode;
 	osg::ref_ptr<osgEarth::MapNode> m_mapNode;
+	osg::ref_ptr<osgEarth::EarthManipulator> m_em;
 };
