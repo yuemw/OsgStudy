@@ -503,8 +503,8 @@ void MainWindow::addCustomNode()
 
 	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.500,500,500.scale");
 	//Create 2 moving planes
-	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 100000, 20);
-	m_rootNode->addChild(plane1);
+// 	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 100000, 20);
+// 	m_rootNode->addChild(plane1);
 // 	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
 // 	m_rootNode->addChild(plane2);
 
@@ -588,7 +588,7 @@ void MainWindow::addPlane()
 		return;
 
 	osg::MatrixTransform* mtFlySelf = new osg::MatrixTransform;
-	mtFlySelf->setMatrix(osg::Matrixd::scale(2, 2, 2)*osg::Matrixd::rotate(0, osg::Vec3d(0,1,0)));
+	mtFlySelf->setMatrix(/*osg::Matrixd::scale(2, 2, 2)*/osg::Matrixd::rotate(45, osg::Vec3d(0,0,1)));
 	mtFlySelf->addChild(plane);
 
 	osg::MatrixTransform* mtFly = new osg::MatrixTransform;
@@ -599,7 +599,7 @@ void MainWindow::addPlane()
 	csn->getEllipsoidModel()->computeLocalToWorldTransformFromLatLongHeight(
 		osg::DegreesToRadians(52.0),
 		osg::DegreesToRadians(-100.3),
-		1000,
+		5000,
 		mtTemp);
 
 	mtFly->setMatrix(mtTemp);
@@ -613,6 +613,10 @@ void MainWindow::addPlane()
 	mtFly->setUpdateCallback(new osg::AnimationPathCallback(path, 0.0, 1.0));
 
 	startTrackNode(plane);
+
+	addTail(osg::Vec3(0, -400, 0), mtFly);
+	addTail(osg::Vec3(0, 400, 0), mtFly);
+
 
 #else
 	//添加模型
@@ -654,22 +658,90 @@ void MainWindow::startTrackNode(osg::Node* node)
 {
 	osgEarth::Viewpoint vp = m_em->getViewpoint();
 	vp.setNode(node);
-	vp.range()->set(250000.0, osgEarth::Units::METERS);//观察的距离
+	vp.range()->set(200000.0, osgEarth::Units::METERS);//观察的距离
 	vp.pitch()->set(-120.0, osgEarth::Units::DEGREES);//观察的角度
 	m_em->setViewpoint(vp, 1.0);
 }
 
 osg::AnimationPath* MainWindow::createPlanePath()
 {
-	osg::ref_ptr<osg::Vec4Array> points = new osg::Vec4Array();
-	points->push_back(osg::Vec4(-100.3321, 52.0, 1000, 800));
-	points->push_back(osg::Vec4(-100.36, 52.1, 2000, 800));
-	points->push_back(osg::Vec4(-100.41, 52.20, 2500, 1000));
-	points->push_back(osg::Vec4(-100.53, 52.22, 3000, 1500));
-	points->push_back(osg::Vec4(-100.93, 52.23, 3000, 1800));
+#if 0
+	const SpatialReference* mapSRS = m_mapNode->getMapSRS()->getGeographicSRS();
+	GeoPoint pos(mapSRS, -100.36, 52.1, 5000, ALTMODE_ABSOLUTE);
+	double looptime = 40.0;
+	double radius = 100000;
 
+	// set up the animation path
 	osg::AnimationPath* animationPath = new osg::AnimationPath;
 	animationPath->setLoopMode(osg::AnimationPath::LOOP);
+
+	int numSamples = 40;
+
+	double delta = osg::PI * 2.0 / (double)numSamples;
+
+	//Get the center point in geocentric
+	GeoPoint mapPos = pos.transform(mapSRS);
+	osg::Vec3d centerWorld;
+	mapPos.toWorld(centerWorld);
+
+	bool isProjected = mapSRS->isProjected();
+
+	osg::Vec3d up = isProjected ? osg::Vec3d(0, 0, 1) : centerWorld;
+	up.normalize();
+
+	//Get the "side" vector
+	osg::Vec3d side = isProjected ? osg::Vec3d(1, 0, 0) : up ^ osg::Vec3d(0, 0, 1);
+
+	double time = 0.0f;
+	double time_delta = looptime / (double)numSamples;
+
+	osg::Vec3d firstPosition;
+	osg::Quat firstRotation;
+
+	double len = radius / looptime;
+	for (unsigned int i = 0; i < (unsigned int)numSamples; i++)
+	{
+// 		double angle = delta * (double)i;
+// 		osg::Quat quat(angle, up);
+// 		osg::Vec3d spoke = quat * (side * radius);
+// 		osg::Vec3d end = centerWorld + spoke;
+
+		double nextLon, nextLat;
+		osgEarth::GeoMath::destination(osg::DegreesToRadians(mapPos.y()), osg::DegreesToRadians(mapPos.x()),
+			60, len * i, nextLat, nextLon);
+		osg::Vec3d end(osg::RadiansToDegrees(nextLon), osg::RadiansToDegrees(nextLat), 5000);
+
+		GeoPoint tmp = GeoPoint(mapSRS, end, ALTMODE_ABSOLUTE).transform(mapSRS);
+		tmp.toWorld(end);
+
+		osg::Quat makeUp;
+		makeUp.makeRotate(osg::Vec3d(0, 0, 30), end);
+
+		osg::Quat rot = makeUp;
+		animationPath->insert(time, osg::AnimationPath::ControlPoint(end, rot));
+		if (i == 0)
+		{
+			firstPosition = end;
+			firstRotation = rot;
+		}
+		time += time_delta;
+	}
+
+	animationPath->insert(time, osg::AnimationPath::ControlPoint(firstPosition, firstRotation));
+
+	return animationPath;
+#else
+	const SpatialReference* mapSRS = m_mapNode->getMapSRS()->getGeographicSRS();
+
+	osg::ref_ptr<osg::Vec4Array> points = new osg::Vec4Array();
+	points->push_back(osg::Vec4(-100.3321, 52.0, 1000, 200));
+	points->push_back(osg::Vec4(-100.34, 52.05, 2000, 500));
+	points->push_back(osg::Vec4(-100.41, 52.10, 3000, 1000));
+	points->push_back(osg::Vec4(-100.53, 52.32, 5000, 1500));
+	points->push_back(osg::Vec4(-101.13, 52.43, 5000, 1500));
+
+	osg::AnimationPath* animationPath = new osg::AnimationPath;
+	animationPath->setLoopMode(osg::AnimationPath::NO_LOOPING);
 
 	double horizonAngle = 0.0;
 	double verticalAngle = 0.0;
@@ -691,28 +763,18 @@ osg::AnimationPath* MainWindow::createPlanePath()
 			break;
 
 		double x, y, z;
-		m_mapNode->getMapSRS()->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter->y()),
+		mapSRS->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter->y()),
 			osg::DegreesToRadians(iter->x()), iter->z(), x, y, z);
 		curPosition = osg::Vec3d(x, y, z);
-		m_mapNode->getMapSRS()->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter2->y()),
+		mapSRS->getEllipsoid()->convertLatLongHeightToXYZ(osg::DegreesToRadians(iter2->y()),
 			osg::DegreesToRadians(iter2->x()), iter2->z(), x, y, z);
 		nextPosition = osg::Vec3d(x, y, z);
 
-		// 水平夹角
-		if (iter->x() == iter2->x())
-		{
-			horizonAngle = osg::PI_2;
-		}
-		else
-		{
-			horizonAngle = atan(iter2->y() - iter->y()) / (iter2->x() - iter->x());
-			if (iter2->x() > iter->x())
-			{
-				horizonAngle += osg::PI;
-			}
-		}
+		// 航向角
+		horizonAngle = osgEarth::GeoMath::bearing(osg::DegreesToRadians(iter->y()), osg::DegreesToRadians(iter->x()),
+			osg::DegreesToRadians(iter2->y()), osg::DegreesToRadians(iter2->x()));
 
-		//垂直夹角
+		//俯仰角
 		if (iter->z() == iter2->z())
 		{
 			verticalAngle = 0.0;
@@ -734,11 +796,13 @@ osg::AnimationPath* MainWindow::createPlanePath()
 
 		}
 		// 求飞机的变换矩阵
-		m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(osg::DegreesToRadians(iter->y()),
+		mapSRS->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(osg::DegreesToRadians(iter->y()),
 			osg::DegreesToRadians(iter->x()), iter->z(), matrix);
-		_roration.makeRotate(0, osg::Vec3(1, 0, 0), verticalAngle /*+ osg::PI_2*/, 
+
+		_roration.makeRotate(0, osg::Vec3(1, 0, 0), verticalAngle/* + osg::PI_2*/, 
 			osg::Vec3(0, 1, 0), horizonAngle, osg::Vec3(0, 0, 1));
 		matrix.preMultRotate(_roration);
+
 		animationPath->insert(time, osg::AnimationPath::ControlPoint(curPosition, matrix.getRotate()));
 
 		// 求下一个点的时间
@@ -747,11 +811,12 @@ osg::AnimationPath* MainWindow::createPlanePath()
 
 	animationPath->insert(time, osg::AnimationPath::ControlPoint(nextPosition, matrix.getRotate()));
 	return animationPath;
+#endif
 }
 
 double MainWindow::getDistance(osg::Vec3d pos1, osg::Vec3d pos2)
 {
-	double dist = osgEarth::GeoMath::distance(pos1, pos2, m_mapNode->getMapSRS());
+	double dist = sqrt(pow((pos1.x() - pos2.x()), 2) + pow((pos1.y() - pos2.y()), 2) + pow((pos1.z() - pos2.z()), 2));
 	return dist;
 }
 
@@ -761,5 +826,21 @@ double MainWindow::getRunTime(osg::Vec3 from, osg::Vec3 to, double speed)
 		return 1000000;
 
 	return getDistance(from, to) / speed;
+}
+
+#include <osgParticle/FireEffect>
+void MainWindow::addTail(osg::Vec3 position, osg::MatrixTransform* scale)
+{
+	osg::ref_ptr<osgParticle::FireEffect> fire = new osgParticle::FireEffect(position, 100);
+	fire->setUseLocalParticleSystem(false);
+	fire->getEmitter()->setEndless(true);
+	fire->getEmitter()->setLifeTime(1);
+	fire->getParticleSystem()->getDefaultParticleTemplate().setLifeTime(fire->getParticleSystem()->getDefaultParticleTemplate().getLifeTime() * 10);
+
+	scale->addChild(fire);
+
+	osg::ref_ptr<Geode> geode = new osg::Geode;
+	geode->addDrawable(fire->getParticleSystem());
+	m_rootNode->addChild(geode);
 }
 

@@ -57,6 +57,8 @@ private:
 
 	double				getDistance(osg::Vec3d pos1, osg::Vec3d pos2);
 	double				getRunTime(osg::Vec3 from, osg::Vec3 to, double speed);
+
+	void				addTail(osg::Vec3 position, osg::MatrixTransform* scale);
 private:
     Ui::OsgEarthQtTest				ui;
 	osgQOpenGLWidget*				_pOsgWidget;
