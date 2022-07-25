@@ -51,14 +51,21 @@ private:
 	osg::AnimationPath* createAnimationPath(const osgEarth::GeoPoint& pos, const osgEarth::SpatialReference* mapSRS,
 		float radius, double looptime);
 
-	void				addPlane();
 	void				startTrackNode(osg::Node* node);
-	osg::AnimationPath* createPlanePath();
 
+	// 创建一个飞机飞行模型
+	void				addPlane();
+	osg::AnimationPath* createPlanePath();
 	double				getDistance(osg::Vec3d pos1, osg::Vec3d pos2);
 	double				getRunTime(osg::Vec3 from, osg::Vec3 to, double speed);
-
 	void				addTail(osg::Vec3 position, osg::MatrixTransform* scale);
+
+	void				addRadarModel();
+	std::vector<osg::Vec3d> getRadarLocalPoints();
+	osg::ref_ptr<osg::Geode> genCoverSurface(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color);
+	osg::ref_ptr<osg::Geode> genCoverLine(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color);
+
+
 private:
     Ui::OsgEarthQtTest				ui;
 	osgQOpenGLWidget*				_pOsgWidget;

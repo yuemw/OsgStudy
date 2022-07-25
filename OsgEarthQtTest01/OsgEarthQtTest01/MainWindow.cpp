@@ -502,13 +502,18 @@ void MainWindow::addCustomNode()
 	addPlane();
 
 	osg::ref_ptr<osg::Node> plane = osgDB::readRefNodeFile("./data/cessna.osgb.500,500,500.scale");
-	//Create 2 moving planes
+//  Create 2 moving planes
 // 	osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -100.1, 52, 5000, ALTMODE_ABSOLUTE), geoSRS, 100000, 20);
 // 	m_rootNode->addChild(plane1);
 // 	osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -101.321, 51.2589, 3390.09, ALTMODE_ABSOLUTE), geoSRS, 30000, 30);
 // 	m_rootNode->addChild(plane2);
 
-	//	startTrackNode(plane1);
+//	startTrackNode(plane1);
+
+	//--------------------------------------------------------------------
+
+	//Load a Radar model.
+	addRadarModel();
 }
 osg::Node* MainWindow::createPlane(osg::Node* node, const GeoPoint& pos, const SpatialReference* mapSRS, double radius, double time)
 {
@@ -612,11 +617,10 @@ void MainWindow::addPlane()
 	osg::AnimationPath* path = createPlanePath();
 	mtFly->setUpdateCallback(new osg::AnimationPathCallback(path, 0.0, 1.0));
 
-	startTrackNode(plane);
+//	startTrackNode(plane);
 
 	addTail(osg::Vec3(0, -400, 0), mtFly);
 	addTail(osg::Vec3(0, 400, 0), mtFly);
-
 
 #else
 	//Ìí¼ÓÄ£ÐÍ
@@ -844,3 +848,164 @@ void MainWindow::addTail(osg::Vec3 position, osg::MatrixTransform* scale)
 	m_rootNode->addChild(geode);
 }
 
+void MainWindow::addRadarModel()
+{
+	double _startAz = 0;
+	double _endAz = 270;
+	double _startEl = 0;
+	double _endEl = 90;
+	double _col = 30;
+	double _row = 20;
+	double _radius = 90000;
+	osg::Vec3f color = Vec3f(0, 255, 0);
+
+	std::vector<osg::Vec3d> _vecLocalPoints = getRadarLocalPoints();
+	osg::ref_ptr<osg::Geode> _surface = genCoverSurface(_row, _col, _vecLocalPoints, color);
+	osg::ref_ptr<osg::Geode> _line = genCoverLine(_row, _col, _vecLocalPoints, color);
+
+	osg::Group* grp = new osg::Group;
+	grp->addChild(_surface.get());
+	grp->addChild(_line);
+
+	osgEarth::GLUtils::setLighting(grp->getOrCreateStateSet(), osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED);
+
+	osg::ref_ptr<osgEarth::ModelSymbol> _modelSymbol = new osgEarth::ModelSymbol;
+	_modelSymbol->setModel(grp);
+	_modelSymbol->autoScale() = false;
+	osgEarth::Style style;
+	style.addSymbol(_modelSymbol.get());
+	osg::ref_ptr<osgEarth::ModelNode> _modelNode = new osgEarth::ModelNode(m_mapNode.get(), style);
+
+	osg::MatrixTransform* radarMT = new osg::MatrixTransform;
+	radarMT->addChild(_modelNode);
+	osg::Matrixd mtTemp;
+	m_mapNode->getMapSRS()->getEllipsoid()->computeLocalToWorldTransformFromLatLongHeight(
+		osg::DegreesToRadians(52.0),
+		osg::DegreesToRadians(-105.3),
+		1,
+		mtTemp);
+
+	radarMT->setMatrix(mtTemp);
+
+	m_rootNode->addChild(radarMT);
+
+	startTrackNode(radarMT);
+}
+
+std::vector<osg::Vec3d> MainWindow::getRadarLocalPoints()
+{
+	std::vector<osg::Vec3d> _vecLocalPoints;
+	double _startAz = 0;
+	double _endAz = 270;
+	double _startEl = 0;
+	double _endEl = 90;
+	double _col = 30;
+	double _row = 20;
+	double _radius = 90000;
+
+	double deltaAZ = (_endAz - _startAz) / (_col - 1);
+	double deltaElev = (_endEl - _startEl) / (_row - 1);
+	for (int i = 0; i < _row; i++)
+	{
+		double elev = i * deltaElev + _startEl;
+		double z = _radius * sin(osg::DegreesToRadians(elev));
+		double projLen = _radius * cos(osg::DegreesToRadians(elev));
+		for (int j = 0; j < _col; j++)
+		{
+			double az = j * deltaAZ + _startAz;
+			double x = projLen * sin(osg::DegreesToRadians(az));
+			double y = projLen * cos(osg::DegreesToRadians(az));
+			_vecLocalPoints.push_back(osg::Vec3d(x, y, z));
+		}
+	}
+
+	return _vecLocalPoints;
+}
+
+#include <osgUtil/SmoothingVisitor>
+#include <osg/BlendFunc>
+osg::ref_ptr<osg::Geode> MainWindow::genCoverSurface(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color)
+{
+	osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+	osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+	osg::ref_ptr<osg::Vec3Array> vertex = new osg::Vec3Array;
+	osg::ref_ptr<osg::Vec4Array> colorArray = new osg::Vec4Array;
+	osg::ref_ptr<osg::DrawElementsUShort> drEleQuads = new osg::DrawElementsUShort(GL_QUADS);
+
+	for (size_t i = 0; i < vecLocalPoints.size(); i++)
+	{
+		vertex->push_back(vecLocalPoints.at(i));
+	}
+
+	for (int i = 0; i < row - 1; i++)
+	{
+		for (int j = 0; j < col - 1; j++)
+		{
+			drEleQuads->push_back(j + i * col);
+			drEleQuads->push_back(j + i * col + 1);
+			drEleQuads->push_back(j + (i + 1)*col + 1);
+			drEleQuads->push_back(j + (i + 1)*col);
+		}
+	}
+	colorArray->push_back(osg::Vec4f(color.x(), color.y(), color.z(), 0.4));
+	colorArray->setBinding(osg::Array::BIND_OVERALL);
+	geom->setVertexArray(vertex.get());
+	geom->addPrimitiveSet(drEleQuads.get());
+
+	osgUtil::SmoothingVisitor SV;
+	geom->accept(SV);
+
+	geom->setColorArray(colorArray.get());
+
+	geode->addDrawable(geom.get());
+	geom->setUseVertexBufferObjects(true);
+	geode->addChild(geom.get());
+	osg::BlendFunc* bf = new osg::BlendFunc;
+	bf->setSource(GL_SRC_ALPHA);
+	bf->setDestination(GL_ONE_MINUS_SRC_ALPHA);
+	geode->getOrCreateStateSet()->setAttributeAndModes(bf, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+	geode->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+	geode->getOrCreateStateSet()->setRenderBinDetails(20, "DepthSortedBin");
+
+	return geode;
+}
+
+osg::ref_ptr<osg::Geode> MainWindow::genCoverLine(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color)
+{
+	osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+	osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+	osg::ref_ptr<osg::Vec3Array> vertex = new osg::Vec3Array;
+	osg::ref_ptr<osg::Vec4Array> colorArray = new osg::Vec4Array;
+	for (size_t i = 0; i < vecLocalPoints.size(); i++)
+	{
+		vertex->push_back(vecLocalPoints.at(i));
+	}
+
+	for (int i = 0; i < row; i++)
+	{
+		osg::ref_ptr<osg::DrawElementsUShort> drEle = new osg::DrawElementsUShort(GL_LINE_STRIP);
+		for (int j = 0; j < col; j++)
+		{
+			drEle->push_back(j + i * col);
+		}
+		geom->addPrimitiveSet(drEle.get());
+	}
+	for (int j = 0; j < col; j++)
+	{
+		osg::ref_ptr<osg::DrawElementsUShort> drEle = new osg::DrawElementsUShort(GL_LINE_STRIP);
+		for (int i = 0; i < row; i++)
+		{
+			drEle->push_back(j + i * col);
+		}
+		geom->addPrimitiveSet(drEle.get());
+	}
+
+	colorArray->push_back(osg::Vec4f(color.x(), color.y(), color.z(), 1.0));
+	colorArray->setBinding(osg::Array::BIND_OVERALL);
+	geom->setVertexArray(vertex.get());
+	geom->setColorArray(colorArray.get());
+	geode->addDrawable(geom.get());
+	geom->setUseVertexBufferObjects(true);
+
+	return geode;
+}
