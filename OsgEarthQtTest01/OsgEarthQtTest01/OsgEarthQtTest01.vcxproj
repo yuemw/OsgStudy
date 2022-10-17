@@ -103,7 +103,7 @@
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>F:\program\osg\OsgCore\lib;$(Qt_LIBPATH_);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>OpenThreads.lib;osg.lib;osgDB.lib;osgFX.lib;osgGA.lib;osgManipulator.lib;osgParticle.lib;osgShadow.lib;osgSimd.lib;osgTerrain.lib;osgText.lib;osgUtil.lib;osgViewer.lib;osgEarth.lib;osgQOpenGL.lib;$(Qt_LIBS_);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>OpenThreads.lib;osg.lib;osgDB.lib;osgFX.lib;osgGA.lib;osgManipulator.lib;osgParticle.lib;osgShadow.lib;osgSimd.lib;osgTerrain.lib;osgText.lib;osgUtil.lib;osgViewer.lib;osgEarth.lib;osgQOpenGL.lib;osgUI.lib;osgWidget.lib;$(Qt_LIBS_);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">

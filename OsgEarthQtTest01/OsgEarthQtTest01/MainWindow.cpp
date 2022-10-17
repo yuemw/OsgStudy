@@ -15,6 +15,12 @@
 #include <osgDB/ReadFile>
 #include <osgViewer/ViewerEventHandlers>
 #include <osgGA/StateSetManipulator>
+#include <osgUtil/SmoothingVisitor>
+#include <osg/BlendFunc>
+
+#include <osgWidget/Canvas>
+#include <osgWidget/Box>
+#include <osgWidget/EventInterface>
 
 #include <osgEarth/ExampleResources>
 #include <osgEarth/ImageOverlay>
@@ -33,6 +39,7 @@
 #include <osgEarth/MouseCoordsTool>
 #include <osgEarth/ModelNode>
 #include <osgEarth/GeoMath>
+#include <osgEarth/Viewpoint>
 
 #include "MyPlanPathCallback.h"
 
@@ -41,20 +48,22 @@ using namespace osgEarth::Util;
 using namespace osgEarth::Util::Controls;
 using namespace osgEarth::Contrib;
 
+const unsigned int MAIN_CAMERA_MASK = 0x1;
+const unsigned int RADAR_CAMERA_MASK = 0x2;
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
-
-	this->setMinimumSize(1024, 768);
-
 	ui.lineEdit_file->setEnabled(false);
+//	ui.widget->hide();
 
 	_pOsgWidget = new osgQOpenGLWidget(this);
 	
 	QHBoxLayout* layout = new QHBoxLayout;
 	layout->addWidget(_pOsgWidget);
 	ui.widget_2->setLayout(layout);
+	this->setMinimumSize(1024, 768);
 
 	connect(_pOsgWidget, SIGNAL(initialize()), this, SLOT(initOsgWindow()));
 }
@@ -217,6 +226,8 @@ void MainWindow::initOsgEarthWindow()
 	m_em = new osgEarth::EarthManipulator;
  	_viewer->setCameraManipulator(m_em);
 
+	setViewPointPosition(52, -100.3, 5000, 0, -90, 50000);
+
 	// initialize the top level state
 	GLUtils::setGlobalDefaults(_viewer->getCamera()->getOrCreateStateSet());
 
@@ -231,6 +242,24 @@ void MainWindow::initOsgEarthWindow()
 	skyNode->attach(_viewer, 1);
 	m_rootNode->addChild(skyNode);
 
+	//add 小雷达
+	osg::ref_ptr<osg::Camera> radar = new osg::Camera;
+//	radar->setClearColor(osg::Vec4(0.0f, 0.2f, 0.0f, 1.0f));
+	radar->setClearMask(GL_DEPTH_BUFFER_BIT);
+	radar->setRenderOrder(osg::Camera::POST_RENDER);
+	radar->setAllowEventFocus(false);
+	radar->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	radar->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+	radar->setViewport(0.0, 0.0, 200.0, 200.0);
+
+	radar->setViewMatrix(osg::Matrixd::lookAt(osg::Vec3(0.0f, 0.0f, 120.0f), osg::Vec3(), osg::Y_AXIS));
+	radar->setProjectionMatrix(osg::Matrixd::ortho2D(-120.0, 120.0, -120.0, 120.0));
+	radar->setCullMask(RADAR_CAMERA_MASK);
+
+	radar->addChild(m_mapNode);
+	m_rootNode->addChild(radar);
+	// end
+
 	osgUtil::Optimizer optimizer;
 	optimizer.optimize(m_rootNode.get());
 	_viewer->setSceneData(m_rootNode.get());
@@ -241,6 +270,9 @@ void MainWindow::initOsgEarthWindow()
 	// set a near/far ratio that is smaller than the default. This allows us to get
 	// closer to the ground without near clipping. If you need more, use --logdepth
 	_viewer->getCamera()->setNearFarRatio(0.0001);
+
+	_viewer->getCamera()->setCullMask(MAIN_CAMERA_MASK);
+	_viewer->setLightingMode(osg::View::SKY_LIGHT);
 
 	// finalize setup and run.
 	_viewer->addEventHandler(new osgViewer::StatsHandler());
@@ -515,6 +547,7 @@ void MainWindow::addCustomNode()
 	//Load a Radar model.
 	addRadarModel();
 }
+
 osg::Node* MainWindow::createPlane(osg::Node* node, const GeoPoint& pos, const SpatialReference* mapSRS, double radius, double time)
 {
 	osg::MatrixTransform* positioner = new osg::MatrixTransform;
@@ -613,6 +646,20 @@ void MainWindow::addPlane()
 	mtFly->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_RESCALE_NORMAL, osg::StateAttribute::ON);
 	mtFly->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+
+	// add rect
+	Style rectStyle;
+	rectStyle.getOrCreate<PolygonSymbol>()->fill()->color() = Color(Color::Orange, 0.8);
+	rectStyle.getOrCreate<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_ABSOLUTE;
+	rectStyle.getOrCreate<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_DRAPE;
+	rectStyle.getOrCreate<ExtrusionSymbol>()->height() = 1.0; // meters MSL
+	const SpatialReference* geoSRS = m_mapNode->getMapSRS()->getGeographicSRS();
+	RectangleNode* rect = new RectangleNode(
+		GeoPoint(geoSRS, -100.3, 52, 0.0),
+		Distance(300, Units::KILOMETERS),
+		Distance(600, Units::KILOMETERS),
+		rectStyle);
+	mtFly->addChild(rect);
 
 	osg::AnimationPath* path = createPlanePath();
 	mtFly->setUpdateCallback(new osg::AnimationPathCallback(path, 0.0, 1.0));
@@ -811,9 +858,11 @@ osg::AnimationPath* MainWindow::createPlanePath()
 
 		// 求下一个点的时间
 		time += getRunTime(curPosition, nextPosition, iter2->w());
+
+		animationPath->insert(time, osg::AnimationPath::ControlPoint(nextPosition, matrix.getRotate()));
 	}
 
-	animationPath->insert(time, osg::AnimationPath::ControlPoint(nextPosition, matrix.getRotate()));
+//	animationPath->insert(time, osg::AnimationPath::ControlPoint(nextPosition, matrix.getRotate()));
 	return animationPath;
 #endif
 }
@@ -889,7 +938,7 @@ void MainWindow::addRadarModel()
 
 	m_rootNode->addChild(radarMT);
 
-	startTrackNode(radarMT);
+//	startTrackNode(radarMT);
 }
 
 std::vector<osg::Vec3d> MainWindow::getRadarLocalPoints()
@@ -922,8 +971,6 @@ std::vector<osg::Vec3d> MainWindow::getRadarLocalPoints()
 	return _vecLocalPoints;
 }
 
-#include <osgUtil/SmoothingVisitor>
-#include <osg/BlendFunc>
 osg::ref_ptr<osg::Geode> MainWindow::genCoverSurface(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color)
 {
 	osg::ref_ptr<osg::Geode> geode = new osg::Geode;
@@ -1008,4 +1055,13 @@ osg::ref_ptr<osg::Geode> MainWindow::genCoverLine(const int row, const int col, 
 	geom->setUseVertexBufferObjects(true);
 
 	return geode;
+}
+
+void MainWindow::setViewPointPosition(double lon, double lat, double alt,
+	double heading, double pitch, double distance_Rnge)
+{
+	osgEarth::Util::Viewpoint p = m_em->getViewpoint();
+	p.range()->set(distance_Rnge, osgEarth::Units::METERS);//观察的距离
+	p.focalPoint() = osgEarth::GeoPoint(osgEarth::SpatialReference::get("wgs84"), lon, lat, alt, osgEarth::AltitudeMode::ALTMODE_ABSOLUTE);
+	m_em->setViewpoint(p);
 }

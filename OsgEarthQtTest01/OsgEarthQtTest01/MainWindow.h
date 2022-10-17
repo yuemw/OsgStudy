@@ -9,6 +9,9 @@
 #include <osg/AnimationPath>
 #include <osgQOpenGL/osgQOpenGLWidget>
 #include <osgViewer/Viewer>
+#include <osgWidget/Label>
+#include <osgWidget/Window>
+
 #include <osgEarth/MapNode>
 #include <osgEarth/SpatialReference>
 #include <osgEarth/AutoClipPlaneHandler>
@@ -66,6 +69,8 @@ private:
 	osg::ref_ptr<osg::Geode> genCoverLine(const int row, const int col, const std::vector<osg::Vec3d>& vecLocalPoints, const osg::Vec3f& color);
 
 
+	void setViewPointPosition(double lon, double lat, double alt,
+		double heading = 0, double pitch = -90.0, double distance_Rnge = 7500000);
 private:
     Ui::OsgEarthQtTest				ui;
 	osgQOpenGLWidget*				_pOsgWidget;
