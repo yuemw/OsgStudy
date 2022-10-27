@@ -9,6 +9,8 @@
 #include <osg/Group>   
 #include <osg/Array>
 #include <osg/Matrixd>
+#include <osg/BlendFunc>
+
 #include <osgDB/WriteFile>  
 #include <osgUtil/Optimizer>
 #include <osgGA/TrackballManipulator>
@@ -16,7 +18,13 @@
 #include <osgViewer/ViewerEventHandlers>
 #include <osgGA/StateSetManipulator>
 #include <osgUtil/SmoothingVisitor>
-#include <osg/BlendFunc>
+#include <osgGA/KeySwitchMatrixManipulator>
+#include <osgGA/StateSetManipulator>
+#include <osgGA/AnimationPathManipulator>
+#include <osgGA/TerrainManipulator>
+#include <osgGA/TrackballManipulator>
+#include <osgGA/FlightManipulator>
+#include <osgGA/DriveManipulator>
 
 #include <osgWidget/Canvas>
 #include <osgWidget/Box>
@@ -226,8 +234,6 @@ void MainWindow::initOsgEarthWindow()
 	m_em = new osgEarth::EarthManipulator;
  	_viewer->setCameraManipulator(m_em);
 
-	setViewPointPosition(52, -100.3, 5000, 0, -90, 50000);
-
 	// initialize the top level state
 	GLUtils::setGlobalDefaults(_viewer->getCamera()->getOrCreateStateSet());
 
@@ -243,21 +249,21 @@ void MainWindow::initOsgEarthWindow()
 	m_rootNode->addChild(skyNode);
 
 	//add 小雷达
-	osg::ref_ptr<osg::Camera> radar = new osg::Camera;
-//	radar->setClearColor(osg::Vec4(0.0f, 0.2f, 0.0f, 1.0f));
-	radar->setClearMask(GL_DEPTH_BUFFER_BIT);
-	radar->setRenderOrder(osg::Camera::POST_RENDER);
-	radar->setAllowEventFocus(false);
-	radar->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	radar->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
-	radar->setViewport(0.0, 0.0, 200.0, 200.0);
-
-	radar->setViewMatrix(osg::Matrixd::lookAt(osg::Vec3(0.0f, 0.0f, 120.0f), osg::Vec3(), osg::Y_AXIS));
-	radar->setProjectionMatrix(osg::Matrixd::ortho2D(-120.0, 120.0, -120.0, 120.0));
-	radar->setCullMask(RADAR_CAMERA_MASK);
-
-	radar->addChild(m_mapNode);
-	m_rootNode->addChild(radar);
+// 	osg::ref_ptr<osg::Camera> radar = new osg::Camera;
+// 	radar->setClearColor(osg::Vec4(0.0f, 0.2f, 0.0f, 1.0f));
+// 	radar->setClearMask(GL_DEPTH_BUFFER_BIT);
+// 	radar->setRenderOrder(osg::Camera::POST_RENDER);
+// 	radar->setAllowEventFocus(false);
+// 	radar->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+// 	radar->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+// 	radar->setViewport(0.0, 0.0, 200.0, 200.0);
+// 
+// 	radar->setViewMatrix(osg::Matrixd::lookAt(osg::Vec3(0.0f, 0.0f, 120.0f), osg::Vec3(), osg::Y_AXIS));
+// 	radar->setProjectionMatrix(osg::Matrixd::ortho2D(-120.0, 120.0, -120.0, 120.0));
+// 	radar->setCullMask(RADAR_CAMERA_MASK);
+// 
+// 	radar->addChild(m_mapNode);
+// 	m_rootNode->addChild(radar);
 	// end
 
 	osgUtil::Optimizer optimizer;
@@ -279,6 +285,18 @@ void MainWindow::initOsgEarthWindow()
 	_viewer->addEventHandler(new osgViewer::WindowSizeHandler());
 	_viewer->addEventHandler(new osgViewer::ThreadingHandler());
 	_viewer->addEventHandler(new osgGA::StateSetManipulator(_viewer->getCamera()->getOrCreateStateSet()));
+
+	//添加一些操作器
+	{
+		osg::ref_ptr<osgGA::KeySwitchMatrixManipulator> keyswitchManipulator = new osgGA::KeySwitchMatrixManipulator;
+		keyswitchManipulator->addMatrixManipulator('1', "Trackball", new osgGA::TrackballManipulator());
+		keyswitchManipulator->addMatrixManipulator('2', "Flight", new osgGA::FlightManipulator());
+		keyswitchManipulator->addMatrixManipulator('3', "Drive", new osgGA::DriveManipulator());
+		keyswitchManipulator->addMatrixManipulator('4', "Terrain", new osgGA::TerrainManipulator());
+		_viewer->setCameraManipulator(keyswitchManipulator.get());
+	}
+	_viewer->addEventHandler(new osgViewer::RecordCameraPathHandler);
+
 	_viewer->realize();
 }
 
@@ -668,6 +686,8 @@ void MainWindow::addPlane()
 
 	addTail(osg::Vec3(0, -400, 0), mtFly);
 	addTail(osg::Vec3(0, 400, 0), mtFly);
+
+	setViewPointPosition(-100.3, 52, 5000, 0, -90, 50000);
 
 #else
 	//添加模型
@@ -1061,6 +1081,8 @@ void MainWindow::setViewPointPosition(double lon, double lat, double alt,
 	double heading, double pitch, double distance_Rnge)
 {
 	osgEarth::Util::Viewpoint p = m_em->getViewpoint();
+	p.setHeading(osgEarth::Angle(heading, osgEarth::Units::DEGREES));
+	p.setPitch(osgEarth::Angle(pitch, osgEarth::Units::DEGREES));
 	p.range()->set(distance_Rnge, osgEarth::Units::METERS);//观察的距离
 	p.focalPoint() = osgEarth::GeoPoint(osgEarth::SpatialReference::get("wgs84"), lon, lat, alt, osgEarth::AltitudeMode::ALTMODE_ABSOLUTE);
 	m_em->setViewpoint(p);
